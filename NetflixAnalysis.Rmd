@@ -1,0 +1,174 @@
+---
+title: "Visualization for Netflix Analysis"
+author: "Zeel Jetli"
+date: "2/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Data Source
+https://www.kaggle.com/joshuaswords/netflix-data-visualization/data 
+
+## Introduction
+
+Netflix is one of the most popular OTT platforms. It has gotten popular day by day. The dataset I found on Kaggle was something that interested me as It had a list of movies and TV shows, where they were produced and added and their genres and some more information. Also with the pandemic we all moved more towards Netflix. 
+The dataset had a lot of null values, so I had to carry out some data preparation steps before starting to work on it. I also removed some NA values.
+I have tried addressing some questions using my analysis and visualizations after doing some data exploration. We will go through those questions and the analysis one by one.
+
+## Where do different countries stand in position when it comes to content creation on Netflix?
+
+
+
+```{r Importing and pre-prepping data, include=FALSE}
+library(ggplot2) #Load all the required libraries
+library(dplyr)
+library(tidyverse)
+
+netfl <- read.csv("C:/Users/HP/Desktop/netflix_titles/netflix_titles.csv")
+summary(netfl)
+colSums(is.na(netfl))
+
+netflix <- na.omit(netfl)
+colSums(is.na(netflix))    
+
+view(netflix)
+
+#Changed the date format to yyyy-mm-dd
+netflix$date_added <- format(as.Date(netflix$date_added, "%d-%b-%y"), "%Y-%m-%d")
+
+#Set theme to classic dark on light
+theme_set(theme_bw())
+#Some countries have multiple countries
+#We extract the first country
+#netfl$first_country <- gsub("([A-Za-z]+).*", "\\,", netfl$country)
+#sub("\\|.*", "", str1)
+
+netflix$first_country <- word(netflix$country,1,sep = "\\,")
+```
+
+```{r View dataset, eval=FALSE, include=FALSE}
+view(netflix)
+
+```
+
+```{r Plot1, echo=FALSE}
+
+#Grouping the data by country and counting the total number of content they created
+plot_data1 <- netflix %>%
+  group_by(first_country) %>% 
+  count() %>%
+  arrange(desc(n))
+
+#Extracting top 10 countries
+top_ten <- head(plot_data1,10)
+
+ggplot(top_ten, aes(x = reorder(first_country, -n), y = n )) +
+  geom_bar(position = 'dodge',stat="identity", width = 0.5, fill="#940404") + #Used netflix's colour
+  geom_text(aes(label=n), position=position_dodge(width=0.9), vjust=-0.25)+
+  #eom_text(aes(label=first_country), hjust=1.6, color="white", size=3.5)+
+  labs(title="Bar Chart", 
+       subtitle="Top 10 content creating Countries on netflix", 
+       #caption="Source: Elo's nfl ratings data for the latest season",
+       x = "",
+       y = "Content created"
+       ) +
+  theme(axis.text.x = element_text(angle=0, vjust=0.6))
+
+```
+
+In this graph we can see that USA and India top the list followed by UK and other countries have an acute difference compared to these three. Bar chart was the perfect choice for this as it clearly demonstrates how the countries stand when it comes to amount of content created.
+
+Moving on to the next question,
+
+## How were Movies and TV shows added over time?
+
+We have data ranging from 2008 to 2021. So, I decided to plot year added vs number of TV shows and Movies added over the time. 
+```{r Plot2, echo=FALSE}
+
+netflix$year_added <- format(as.Date(netflix$date_added, "%Y-%m-%d"), "%Y")
+plot_data2 <- netflix 
+
+
+view(plot_data2)
+
+plot_datax <- plot_data2 %>%
+  group_by(year_added) %>%
+  count(type) %>%
+  filter(!is.na(type))
+view(plot_datax)
+
+plot_datax %>%
+  ggplot() + 
+  geom_area(aes(x=year_added, y=n, fill=type, group=type)) +
+  scale_fill_manual(values=c("#940404", "#3a4749")) +
+  labs(title="Area Plot", 
+       subtitle="Movies and TV Shows added over time", 
+       #caption="Source: Elo's nfl ratings data for the latest season",
+       x = "",
+       y = "") +
+  theme(axis.text.x = element_text(angle=0, vjust=0.6))
+
+```
+
+We see Netflix defintely had a slow start.The stacked area graph above depicts how there was a major increase in addition of movies on Netflix as compared to TV shows. But, we can see that the amount of TV shows added doubled towards 2020 as compared to 2017 when there was a gradual decrease in number of movies added.The pandemic could be the reason for the decrease towards the end in overall content addition.
+
+## How categories(genres) are correlated with each other
+
+For answering the question, I had to do some more data preparation for visualization. I subsetted the data into one with categories for movie and one for TV shows.
+
+```{r Plot3, echo=FALSE}
+df_show_categories <- netflix %>% 
+  select(c('show_id','type','listed_in')) %>% 
+  separate_rows(listed_in, sep = ',') %>%
+  rename(Show_Category = listed_in)
+df_show_categories$Show_Category <- trimws(df_show_categories$Show_Category)
+#head(df_show_categories)
+
+df_unique_categories <- df_show_categories %>% 
+  group_by(type,Show_Category) %>% summarise()
+df_category_correlations_movies <- data.frame(expand_grid(type = 'Movie', 
+                                                          Category1 = subset(df_unique_categories, type == 'Movie')$Show_Category,
+                                                          Category2 = subset(df_unique_categories, type == 'Movie')$Show_Category))
+
+df_category_correlations_TV <- data.frame(expand_grid(type = 'TV Show', 
+                                                           Category1 = subset(df_unique_categories, type == 'TV Show')$Show_Category,
+                                                           Category2 = subset(df_unique_categories, type == 'TV Show')$Show_Category))
+
+df_category_correlations <- rbind(df_category_correlations_movies,df_category_correlations_TV)
+df_category_correlations$matched_count <- apply(df_category_correlations, MARGIN = 1,FUN = function(x) {
+  length(intersect(subset(df_show_categories, type == x['type'] & Show_Category == x['Category1'])$show_id,
+                   subset(df_show_categories, type == x['type'] & Show_Category == x['Category2'])$show_id))})
+
+
+df_category_correlations <- subset(df_category_correlations, (as.character(Category1) < as.character(Category2)) & (matched_count > 0))
+# Change plot size to 8 x 3
+options(repr.plot.width=14, repr.plot.height=10)
+
+ggplot(subset(df_category_correlations, type == 'Movie'), 
+       aes(x = Category1, y = Category2, fill = matched_count)) + 
+  geom_tile() + 
+  facet_wrap( ~type, scales = 'free') + 
+  scale_fill_distiller(palette = "Spectral") + 
+  labs(title="Area Plot for Genre Correlation", 
+       subtitle="Independence movies tend to be Dramas", 
+       x = "",
+       y = "") +
+  theme(axis.text.x = element_text(angle=90, vjust=0.6),legend.text = element_text(size = 14), legend.title = element_text(size = 16))
+
+
+```
+
+For correlation, tile plot seemed the most appropriate. Some of the observation were,
+
+- It is a fact that Independent movies tend to be Dramas usually with the maximum match count.
+
+- There are some interesting missing overlaps in categories.. such as "Faith and Spirituality" doesn't seem to overlap with "LGBTQ" movies.
+
+- There is a significant overlap between "Drama" and "Comedy" as expected
+
+## Conclusion
+
+There is so many more question which can be worked for using this dataset. But these were the ones I found interesting. And I guess, there will be a rise in the data added again as we come out of the pandemic. 
